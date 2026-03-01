@@ -13,22 +13,22 @@ const PORT = process.env.PORT || 5000;
 
 // ===== Проверка подписи Telegram =====
 function validateTelegramWebAppData(initData) {
-  const secretKey = crypto
-    .createHash("sha256")
+  const secret = crypto
+    .createHmac("sha256", "WebAppData")
     .update(BOT_TOKEN)
     .digest();
 
-  const params = new URLSearchParams(initData);
-  const hash = params.get("hash");
-  params.delete("hash");
+  const urlParams = new URLSearchParams(initData);
+  const hash = urlParams.get("hash");
+  urlParams.delete("hash");
 
-  const dataCheckString = Array.from(params.entries())
+  const dataCheckString = Array.from(urlParams.entries())
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, value]) => `${key}=${value}`)
     .join("\n");
 
   const hmac = crypto
-    .createHmac("sha256", secretKey)
+    .createHmac("sha256", secret)
     .update(dataCheckString)
     .digest("hex");
 
@@ -50,7 +50,7 @@ app.get("/", (req, res) => {
 // ===== Создание заказа =====
 app.post("/order", async (req, res) => {
   const { cart, initData } = req.body;
-
+  console.log("INIT DATA:", initData);
   if (!cart || !initData) {
     return res.status(400).json({ error: "Missing data" });
   }
