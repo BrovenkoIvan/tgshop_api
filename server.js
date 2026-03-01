@@ -12,42 +12,59 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 const PORT = process.env.PORT || 5000;
 
 // ===== Проверка подписи Telegram =====
-function checkTelegramSignature(initData) {
-  const secret = crypto.createHmac("sha256", BOT_TOKEN).update("WebAppData").digest();
+function validateTelegramWebAppData(initData) {
+  const secretKey = crypto
+    .createHash("sha256")
+    .update(BOT_TOKEN)
+    .digest();
 
-  const params = initData
-    .split("&")
-    .map((s) => s.split("="))
-    .reduce((acc, [k, v]) => ({ ...acc, [k]: v }), {});
+  const params = new URLSearchParams(initData);
+  const hash = params.get("hash");
+  params.delete("hash");
 
-  const hash = params.hash;
-  delete params.hash;
-
-  const dataCheckString = Object.keys(params)
-    .sort()
-    .map((k) => `${k}=${params[k]}`)
+  const dataCheckString = Array.from(params.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
     .join("\n");
 
-  const hmac = crypto.createHmac("sha256", secret).update(dataCheckString).digest("hex");
+  const hmac = crypto
+    .createHmac("sha256", secretKey)
+    .update(dataCheckString)
+    .digest("hex");
 
   return hmac === hash;
 }
 
-// ===== Тестовый маршрут =====
+// ===== Достаём пользователя из initData =====
+function getUserFromInitData(initData) {
+  const params = new URLSearchParams(initData);
+  const user = params.get("user");
+  return user ? JSON.parse(user) : null;
+}
+
+// ===== Тест =====
 app.get("/", (req, res) => {
-  res.send("<h1>API is working 🚀</h1>");
+  res.send("API is working 🚀");
 });
 
 // ===== Создание заказа =====
 app.post("/order", async (req, res) => {
-  const { cart, user, initData } = req.body;
+  const { cart, initData } = req.body;
 
-  if (!cart || !user || !initData) {
+  if (!cart || !initData) {
     return res.status(400).json({ error: "Missing data" });
   }
 
-  if (!checkTelegramSignature(initData)) {
+  // Проверяем подпись
+  if (!validateTelegramWebAppData(initData)) {
     return res.status(403).json({ error: "Invalid Telegram signature" });
+  }
+
+  // Получаем user ТОЛЬКО с сервера
+  const user = getUserFromInitData(initData);
+
+  if (!user) {
+    return res.status(400).json({ error: "User not found in initData" });
   }
 
   const total = cart.reduce((sum, item) => sum + item.price, 0);
@@ -67,7 +84,10 @@ ${cart.map((item) => `- ${item.name} (${item.price} грн)`).join("\n")}
     await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: user.id, text: message }),
+      body: JSON.stringify({
+        chat_id: user.id,
+        text: message,
+      }),
     });
 
     res.json({ success: true });
@@ -77,5 +97,6 @@ ${cart.map((item) => `- ${item.name} (${item.price} грн)`).join("\n")}
   }
 });
 
-// ===== Запуск сервера =====
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+app.listen(PORT, () =>
+  console.log(`Server running on port ${PORT}`)
+);
